@@ -7,7 +7,7 @@ import requests
 from flask import Flask
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-TOKEN = "8906467783:AAGU5RLr4_xdv4bXjUrxOKSqBZU7SIMlIuI"
+TOKEN = "ВСТАВЬ_ТОКЕН_БОТА"
 ADMIN_ID = 7837011810
 PING_URL = "https://supporthelp.onrender.com/"
 
@@ -17,6 +17,17 @@ PRODUCTS_FILE = "products.json"
 ORDERS_FILE = "orders.json"
 
 user_states = {}
+
+BAD_WORDS = [
+    "наркотик", "оружие", "скам", "обман", "кардинг",
+    "слив", "18+", "порно", "взлом", "ворованный",
+    "украденный", "дроп", "паспорт", "банк карта"
+]
+
+SUSPICIOUS_WORDS = [
+    "аккаунт", "логин", "пароль", "cookie", "куки",
+    "steam", "roblox", "telegram", "discord", "почта"
+]
 
 app = Flask(__name__)
 
@@ -53,9 +64,25 @@ def make_id(data):
         new_id = str(random.randint(1000, 9999))
     return new_id
 
-def main_menu():
+def check_product(name, description, content):
+    text = f"{name} {description} {content}".lower()
+
+    for word in BAD_WORDS:
+        if word in text:
+            return "reject"
+
+    for word in SUSPICIOUS_WORDS:
+        if word in text:
+            return "moderation"
+
+    if len(description) < 5:
+        return "moderation"
+
+    return "active"
+
+def menu():
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog"))
+    kb.add(InlineKeyboardButton("🛒 Каталог", callback_data="catalog"))
     kb.add(InlineKeyboardButton("➕ Создать товар", callback_data="create_product"))
     kb.add(InlineKeyboardButton("📦 Мои товары", callback_data="my_products"))
     kb.add(InlineKeyboardButton("🧾 Мои заказы", callback_data="my_orders"))
@@ -67,29 +94,28 @@ def start(message):
         message.chat.id,
         "👋 Добро пожаловать в Market Store!\n\n"
         "Маркетплейс цифровых товаров.\n"
-        "Создавайте товары, покупайте и продавайте безопаснее.",
-        reply_markup=main_menu()
+        "Товары проходят автоматическую проверку.",
+        reply_markup=menu()
     )
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def catalog(call):
     products = load_json(PRODUCTS_FILE)
 
-    active_products = {
-        pid: p for pid, p in products.items()
-        if p.get("status") == "active"
-    }
+    kb = InlineKeyboardMarkup()
+    found = False
 
-    if not active_products:
+    for product_id, p in products.items():
+        if p.get("status") == "active":
+            found = True
+            kb.add(InlineKeyboardButton(
+                f"{p['name']} — {p['price']} грн",
+                callback_data=f"view_{product_id}"
+            ))
+
+    if not found:
         bot.send_message(call.message.chat.id, "🛒 Каталог пуст.")
         return
-
-    kb = InlineKeyboardMarkup()
-    for product_id, p in active_products.items():
-        kb.add(InlineKeyboardButton(
-            f"{p['name']} — {p['price']} грн",
-            callback_data=f"view_{product_id}"
-        ))
 
     bot.send_message(call.message.chat.id, "🛒 Каталог товаров:", reply_markup=kb)
 
@@ -99,7 +125,7 @@ def view_product(call):
     products = load_json(PRODUCTS_FILE)
 
     if product_id not in products or products[product_id].get("status") != "active":
-        bot.send_message(call.message.chat.id, "❌ Товар уже куплен или удалён.")
+        bot.send_message(call.message.chat.id, "❌ Товар недоступен.")
         return
 
     p = products[product_id]
@@ -107,8 +133,7 @@ def view_product(call):
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("✅ Купить", callback_data=f"buy_{product_id}"))
 
-    seller = p.get("seller_username")
-    seller_text = f"@{seller}" if seller else "без username"
+    seller = p.get("seller_username") or "без username"
 
     bot.send_message(
         call.message.chat.id,
@@ -116,19 +141,19 @@ def view_product(call):
         f"Название: {p['name']}\n"
         f"Цена: {p['price']} грн\n"
         f"Описание: {p['description']}\n\n"
-        f"Продавец: {seller_text}\n\n"
-        f"⚠️ Карта и данные товара скрыты до покупки.",
+        f"Продавец: @{seller}\n\n"
+        f"Карта и данные товара скрыты до покупки.",
         reply_markup=kb
     )
 
 @bot.callback_query_handler(func=lambda call: call.data == "create_product")
 def create_product(call):
     if call.from_user.username is None:
-        bot.send_message(call.message.chat.id, "❌ Чтобы создавать товары, установите username в Telegram.")
+        bot.send_message(call.message.chat.id, "❌ Сначала установите username в Telegram.")
         return
 
     user_states[call.from_user.id] = {"step": "name", "data": {}}
-    bot.send_message(call.message.chat.id, "➕ Создание товара\n\nВведите название товара:")
+    bot.send_message(call.message.chat.id, "➕ Введите название товара:")
 
 @bot.message_handler(func=lambda message: message.from_user.id in user_states)
 def product_steps(message):
@@ -143,18 +168,14 @@ def product_steps(message):
     text = message.text.strip()
 
     if step == "name":
-        if len(text) < 2:
-            bot.send_message(message.chat.id, "❌ Название слишком короткое.")
-            return
-
         state["data"]["name"] = text[:60]
         state["step"] = "price"
-        bot.send_message(message.chat.id, "💸 Введите цену товара в грн:")
+        bot.send_message(message.chat.id, "💸 Введите цену в грн:")
         return
 
     if step == "price":
         if not text.isdigit():
-            bot.send_message(message.chat.id, "❌ Цена должна быть числом. Например: 100")
+            bot.send_message(message.chat.id, "❌ Цена должна быть числом.")
             return
 
         price = int(text)
@@ -170,56 +191,138 @@ def product_steps(message):
     if step == "description":
         state["data"]["description"] = text[:500]
         state["step"] = "card"
-        bot.send_message(message.chat.id, "💳 Введите номер карты для оплаты:")
+        bot.send_message(message.chat.id, "💳 Введите карту для оплаты:")
         return
 
     if step == "card":
-        clean_card = text.replace(" ", "")
-
-        if len(clean_card) < 10:
-            bot.send_message(message.chat.id, "❌ Номер карты слишком короткий.")
+        if len(text.replace(" ", "")) < 10:
+            bot.send_message(message.chat.id, "❌ Карта слишком короткая.")
             return
 
         state["data"]["card"] = text[:80]
         state["step"] = "content"
-        bot.send_message(
-            message.chat.id,
-            "🔐 Введите данные товара, которые покупатель получит после подтверждения оплаты:"
-        )
+        bot.send_message(message.chat.id, "🔐 Введите данные товара для покупателя:")
         return
 
     if step == "content":
         products = load_json(PRODUCTS_FILE)
         product_id = make_id(products)
 
+        name = state["data"]["name"]
+        price = state["data"]["price"]
+        description = state["data"]["description"]
+        card = state["data"]["card"]
+        content = text[:1000]
+
+        status = check_product(name, description, content)
+
+        if status == "reject":
+            del user_states[user_id]
+            bot.send_message(
+                message.chat.id,
+                "❌ Товар отклонён автоматической модерацией.\n"
+                "Причина: запрещённый или опасный товар."
+            )
+            return
+
         products[product_id] = {
             "seller_id": str(user_id),
             "seller_username": message.from_user.username,
-            "name": state["data"]["name"],
-            "price": state["data"]["price"],
-            "description": state["data"]["description"],
-            "card": state["data"]["card"],
-            "content": text[:1000],
-            "status": "active"
+            "name": name,
+            "price": price,
+            "description": description,
+            "card": card,
+            "content": content,
+            "status": status
         }
 
         save_json(PRODUCTS_FILE, products)
         del user_states[user_id]
 
-        bot.send_message(
-            message.chat.id,
-            f"✅ Товар #{product_id} создан и добавлен в каталог!\n\n"
-            f"📦 Название: {products[product_id]['name']}\n"
-            f"💸 Цена: {products[product_id]['price']} грн"
-        )
+        if status == "active":
+            bot.send_message(
+                message.chat.id,
+                f"✅ Товар #{product_id} создан и добавлен в каталог."
+            )
+        else:
+            kb = InlineKeyboardMarkup()
+            kb.add(
+                InlineKeyboardButton("✅ Одобрить", callback_data=f"mod_ok_{product_id}"),
+                InlineKeyboardButton("❌ Отклонить", callback_data=f"mod_no_{product_id}")
+            )
+
+            bot.send_message(
+                message.chat.id,
+                f"⏳ Товар #{product_id} отправлен на проверку администратору."
+            )
+
+            bot.send_message(
+                ADMIN_ID,
+                f"⚠️ Товар на модерации #{product_id}\n\n"
+                f"Продавец: @{message.from_user.username}\n"
+                f"Название: {name}\n"
+                f"Цена: {price} грн\n"
+                f"Описание: {description}\n\n"
+                f"Данные товара скрыты от каталога.",
+                reply_markup=kb
+            )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("mod_ok_"))
+def mod_ok(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "Нет доступа.")
+        return
+
+    product_id = call.data.split("_")[2]
+    products = load_json(PRODUCTS_FILE)
+
+    if product_id not in products:
+        bot.answer_callback_query(call.id, "Товар не найден.")
+        return
+
+    products[product_id]["status"] = "active"
+    save_json(PRODUCTS_FILE, products)
+
+    try:
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    except:
+        pass
+
+    bot.send_message(int(products[product_id]["seller_id"]), f"✅ Ваш товар #{product_id} одобрен.")
+    bot.send_message(call.message.chat.id, f"✅ Товар #{product_id} одобрен.")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("mod_no_"))
+def mod_no(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "Нет доступа.")
+        return
+
+    product_id = call.data.split("_")[2]
+    products = load_json(PRODUCTS_FILE)
+
+    if product_id not in products:
+        bot.answer_callback_query(call.id, "Товар не найден.")
+        return
+
+    seller_id = products[product_id]["seller_id"]
+    del products[product_id]
+    save_json(PRODUCTS_FILE, products)
+
+    try:
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    except:
+        pass
+
+    bot.send_message(int(seller_id), f"❌ Ваш товар #{product_id} отклонён.")
+    bot.send_message(call.message.chat.id, f"❌ Товар #{product_id} отклонён и удалён.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
-def buy_product(call):
+def buy(call):
     product_id = call.data.split("_")[1]
     products = load_json(PRODUCTS_FILE)
 
     if product_id not in products or products[product_id].get("status") != "active":
-        bot.send_message(call.message.chat.id, "❌ Этот товар уже куплен или недоступен.")
+        bot.send_message(call.message.chat.id, "❌ Товар уже куплен или недоступен.")
         return
 
     p = products[product_id]
@@ -228,11 +331,11 @@ def buy_product(call):
         bot.send_message(call.message.chat.id, "❌ Нельзя купить свой товар.")
         return
 
-    orders = load_json(ORDERS_FILE)
-    order_id = make_id(orders)
-
     products[product_id]["status"] = "reserved"
     save_json(PRODUCTS_FILE, products)
+
+    orders = load_json(ORDERS_FILE)
+    order_id = make_id(orders)
 
     orders[order_id] = {
         "buyer_id": str(call.from_user.id),
@@ -253,7 +356,7 @@ def buy_product(call):
         f"📦 Товар: {p['name']}\n"
         f"💸 Цена: {p['price']} грн\n\n"
         f"💳 Карта продавца:\n{p['card']}\n\n"
-        f"После оплаты нажмите кнопку и отправьте скриншот чека.",
+        f"После оплаты отправьте чек.",
         reply_markup=kb
     )
 
@@ -272,10 +375,6 @@ def paid(call):
         bot.send_message(call.message.chat.id, "❌ Это не ваш заказ.")
         return
 
-    if order["status"] != "waiting_payment":
-        bot.send_message(call.message.chat.id, "❌ Чек уже отправлен или заказ закрыт.")
-        return
-
     bot.send_message(call.message.chat.id, f"📸 Отправьте скриншот оплаты заказа #{order_id}")
     bot.register_next_step_handler(call.message, get_receipt, order_id)
 
@@ -289,21 +388,11 @@ def get_receipt(message, order_id):
 
     order = orders[order_id]
 
-    if str(message.from_user.id) != order["buyer_id"]:
-        bot.send_message(message.chat.id, "❌ Это не ваш заказ.")
-        return
-
     if order["status"] != "waiting_payment":
-        bot.send_message(message.chat.id, "❌ Чек уже отправлен.")
+        bot.send_message(message.chat.id, "❌ Заказ уже обработан.")
         return
 
-    product_id = order["product_id"]
-
-    if product_id not in products:
-        bot.send_message(message.chat.id, "❌ Товар не найден.")
-        return
-
-    product = products[product_id]
+    product = products[order["product_id"]]
     orders[order_id]["status"] = "waiting_seller"
     save_json(ORDERS_FILE, orders)
 
@@ -313,79 +402,40 @@ def get_receipt(message, order_id):
         InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{order_id}")
     )
 
-    buyer_username = order.get("buyer_username")
-    buyer_text = f"@{buyer_username}" if buyer_username else "без username"
-
-    text_for_seller = (
-        f"🧾 Новый чек по заказу #{order_id}\n\n"
+    text = (
+        f"🧾 Новый чек #{order_id}\n\n"
         f"📦 Товар: {product['name']}\n"
         f"💸 Цена: {product['price']} грн\n"
-        f"👤 Покупатель: {buyer_text}\n"
-        f"🆔 ID покупателя: {order['buyer_id']}\n\n"
-        f"Подтвердите только если деньги реально пришли."
+        f"Покупатель: @{order.get('buyer_username') or 'без username'}"
     )
-
-    seller_id = int(order["seller_id"])
 
     if message.photo:
-        bot.send_photo(
-            seller_id,
-            message.photo[-1].file_id,
-            caption=text_for_seller,
-            reply_markup=kb
-        )
+        bot.send_photo(int(order["seller_id"]), message.photo[-1].file_id, caption=text, reply_markup=kb)
     else:
-        bot.send_message(
-            seller_id,
-            text_for_seller + "\n\n⚠️ Покупатель отправил не фото.",
-            reply_markup=kb
-        )
+        bot.send_message(int(order["seller_id"]), text + "\n\n⚠️ Не фото.", reply_markup=kb)
 
-    bot.send_message(
-        message.chat.id,
-        f"✅ Чек отправлен продавцу!\n\n"
-        f"🧾 Заказ #{order_id}\n"
-        f"⏳ Ожидайте подтверждения."
-    )
+    bot.send_message(message.chat.id, "✅ Чек отправлен продавцу.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_"))
-def approve_order(call):
+def approve(call):
     order_id = call.data.split("_")[1]
     orders = load_json(ORDERS_FILE)
     products = load_json(PRODUCTS_FILE)
 
     if order_id not in orders:
-        bot.answer_callback_query(call.id, "Заказ не найден.")
         return
 
     order = orders[order_id]
 
-    if order["status"] != "waiting_seller":
-        bot.answer_callback_query(call.id, "Заказ уже обработан.")
-        return
-
     if str(call.from_user.id) != order["seller_id"] and call.from_user.id != ADMIN_ID:
-        bot.answer_callback_query(call.id, "Вы не продавец этого товара.")
+        bot.answer_callback_query(call.id, "Нет доступа.")
         return
 
-    product_id = order["product_id"]
-
-    if product_id not in products:
-        bot.answer_callback_query(call.id, "Товар не найден.")
+    if order["status"] != "waiting_seller":
+        bot.answer_callback_query(call.id, "Уже обработано.")
         return
 
-    product = products[product_id]
-
-    orders[order_id]["status"] = "done"
-    products[product_id]["status"] = "sold"
-
-    save_json(ORDERS_FILE, orders)
-    save_json(PRODUCTS_FILE, products)
-
-    try:
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-    except:
-        pass
+    product = products[order["product_id"]]
 
     bot.send_message(
         int(order["buyer_id"]),
@@ -394,57 +444,53 @@ def approve_order(call):
         f"🔐 Данные товара:\n{product['content']}"
     )
 
-    bot.send_message(
-        call.message.chat.id,
-        f"✅ Заказ #{order_id} подтверждён. Товар выдан покупателю.\n\n"
-        f"Товар убран из каталога."
-    )
+    del products[order["product_id"]]
+    orders[order_id]["status"] = "done"
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("reject_"))
-def reject_order(call):
-    order_id = call.data.split("_")[1]
-    orders = load_json(ORDERS_FILE)
-    products = load_json(PRODUCTS_FILE)
-
-    if order_id not in orders:
-        bot.answer_callback_query(call.id, "Заказ не найден.")
-        return
-
-    order = orders[order_id]
-
-    if order["status"] != "waiting_seller":
-        bot.answer_callback_query(call.id, "Заказ уже обработан.")
-        return
-
-    if str(call.from_user.id) != order["seller_id"] and call.from_user.id != ADMIN_ID:
-        bot.answer_callback_query(call.id, "Вы не продавец этого товара.")
-        return
-
-    product_id = order["product_id"]
-
-    orders[order_id]["status"] = "rejected"
-
-    if product_id in products:
-        products[product_id]["status"] = "active"
-
-    save_json(ORDERS_FILE, orders)
     save_json(PRODUCTS_FILE, products)
+    save_json(ORDERS_FILE, orders)
 
     try:
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
     except:
         pass
 
-    bot.send_message(
-        int(order["buyer_id"]),
-        f"❌ Заказ #{order_id} отклонён продавцом.\n\n"
-        f"Товар снова доступен в каталоге."
-    )
+    bot.send_message(call.message.chat.id, "✅ Заказ подтверждён. Товар удалён из каталога.")
 
-    bot.send_message(
-        call.message.chat.id,
-        f"❌ Заказ #{order_id} отклонён. Товар возвращён в каталог."
-    )
+@bot.callback_query_handler(func=lambda call: call.data.startswith("reject_"))
+def reject(call):
+    order_id = call.data.split("_")[1]
+    orders = load_json(ORDERS_FILE)
+    products = load_json(PRODUCTS_FILE)
+
+    if order_id not in orders:
+        return
+
+    order = orders[order_id]
+
+    if str(call.from_user.id) != order["seller_id"] and call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "Нет доступа.")
+        return
+
+    if order["status"] != "waiting_seller":
+        bot.answer_callback_query(call.id, "Уже обработано.")
+        return
+
+    if order["product_id"] in products:
+        products[order["product_id"]]["status"] = "active"
+
+    orders[order_id]["status"] = "rejected"
+
+    save_json(PRODUCTS_FILE, products)
+    save_json(ORDERS_FILE, orders)
+
+    try:
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    except:
+        pass
+
+    bot.send_message(int(order["buyer_id"]), "❌ Заказ отклонён. Товар вернулся в каталог.")
+    bot.send_message(call.message.chat.id, "❌ Заказ отклонён.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "my_products")
 def my_products(call):
@@ -454,10 +500,10 @@ def my_products(call):
     text = "📦 Ваши товары:\n\n"
     found = False
 
-    for product_id, p in products.items():
+    for pid, p in products.items():
         if p.get("seller_id") == user_id:
             found = True
-            text += f"#{product_id} — {p['name']} — {p['price']} грн — {p.get('status')}\n"
+            text += f"#{pid} — {p['name']} — {p['price']} грн — {p['status']}\n"
 
     if not found:
         text = "У вас пока нет товаров."
@@ -467,17 +513,15 @@ def my_products(call):
 @bot.callback_query_handler(func=lambda call: call.data == "my_orders")
 def my_orders(call):
     orders = load_json(ORDERS_FILE)
-    products = load_json(PRODUCTS_FILE)
     user_id = str(call.from_user.id)
 
     text = "🧾 Ваши заказы:\n\n"
     found = False
 
-    for order_id, order in orders.items():
-        if order.get("buyer_id") == user_id:
+    for oid, o in orders.items():
+        if o.get("buyer_id") == user_id:
             found = True
-            product = products.get(order["product_id"], {})
-            text += f"#{order_id} — {product.get('name', 'товар')} — {order.get('status')}\n"
+            text += f"#{oid} — {o['status']}\n"
 
     if not found:
         text = "У вас пока нет заказов."

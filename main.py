@@ -8,7 +8,7 @@ import time
 import requests
 from flask import Flask
 
-TOKEN = "ТВОЙ_ТОКЕН_БОТА"
+TOKEN = "8906467783:AAGLIan8IWevV1Pb3VjNTO3NNHltY3bnFqs"
 ADMIN_ID = 7837011810
 
 bot = telebot.TeleBot(TOKEN)

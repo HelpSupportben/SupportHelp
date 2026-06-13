@@ -4,7 +4,7 @@ import random
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = "ВСТАВЬ_ТОКЕН_БОТА"
-ADMIN_ID = 123456789
+ADMIN_ID = 7837011810
 
 CARD_TEXT = "Оплата на карту: 0000 0000 0000 0000\nПосле оплаты отправьте скриншот чека."
 

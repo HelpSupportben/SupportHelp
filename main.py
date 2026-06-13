@@ -3,7 +3,7 @@ import json
 import random
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-TOKEN = "ВСТАВЬ_ТОКЕН_БОТА"
+TOKEN = "8906467783:AAFgh0Y6Yqnw8cNynkPDKnCXdR9yQMQy8BY"
 ADMIN_ID = 7837011810
 
 CARD_TEXT = "Оплата на карту: 0000 0000 0000 0000\nПосле оплаты отправьте скриншот чека."

@@ -7,7 +7,7 @@ import requests
 from flask import Flask
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-TOKEN = "ВСТАВЬ_ТОКЕН_БОТА"
+TOKEN = "8906467783:AAGU5RLr4_xdv4bXjUrxOKSqBZU7SIMlIuI"
 ADMIN_ID = 7837011810
 PING_URL = "https://supporthelp.onrender.com/"
 

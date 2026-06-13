@@ -3,7 +3,7 @@ import json
 import random
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-TOKEN = "8906467783:AAFgh0Y6Yqnw8cNynkPDKnCXdR9yQMQy8BY"
+TOKEN = "8906467783:AAGU5RLr4_xdv4bXjUrxOKSqBZU7SIMlIuI"
 ADMIN_ID = 7837011810
 
 bot = telebot.TeleBot(TOKEN)
